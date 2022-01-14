@@ -191,6 +191,16 @@ private:
       *(little64_t *)FixupPtr = static_cast<uint64_t>(Value);
       break;
     }
+    case R_RISCV_BRANCH: {
+      int64_t Value = E.getTarget().getAddress() + E.getAddend() - FixupAddress;
+      uint32_t Imm31_25 =
+          extractBits(Value, 10, 5) << 25 | extractBits(Value, 12, 12) << 31;
+      uint32_t Imm11_7 =
+          extractBits(Value, 4, 1) << 8 | extractBits(Value, 11, 11) << 7;
+      uint32_t RawInstr = *(little32_t *)FixupPtr;
+      *(little32_t *)FixupPtr = (RawInstr & 0x1FFF07F) | Imm31_25 | Imm11_7;
+      break;
+    }
     case R_RISCV_HI20: {
       int64_t Value = E.getTarget().getAddress() + E.getAddend();
       int32_t Hi = (Value + 0x800) & 0xFFFFF000;
@@ -389,6 +399,8 @@ private:
       return EdgeKind_riscv::R_RISCV_32;
     case ELF::R_RISCV_64:
       return EdgeKind_riscv::R_RISCV_64;
+    case ELF::R_RISCV_BRANCH:
+      return EdgeKind_riscv::R_RISCV_BRANCH;
     case ELF::R_RISCV_HI20:
       return EdgeKind_riscv::R_RISCV_HI20;
     case ELF::R_RISCV_LO12_I:
