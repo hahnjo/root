@@ -393,12 +393,12 @@ template <typename ELFT> Error ELFLinkGraphBuilder<ELFT>::graphifySymbols() {
                  << "\"\n";
         });
 
-        if (Sym.getType() == ELF::STT_SECTION)
-          *Name = GraphSec->getName();
-
         auto &GSym =
-            G->addDefinedSymbol(*B, Sym.getValue(), *Name, Sym.st_size, L, S,
-                                Sym.getType() == ELF::STT_FUNC, false);
+            Name->empty()
+                ? G->addAnonymousSymbol(*B, Sym.getValue(), Sym.st_size, false,
+                                        false)
+                : G->addDefinedSymbol(*B, Sym.getValue(), *Name, Sym.st_size, L, S,
+                                      Sym.getType() == ELF::STT_FUNC, false);
         setGraphSymbol(SymIndex, GSym);
       }
     } else if (Sym.isUndefined() && Sym.isExternal()) {
