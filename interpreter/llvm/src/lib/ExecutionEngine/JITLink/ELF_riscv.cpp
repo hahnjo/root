@@ -348,6 +348,31 @@ private:
       *(little32_t *)FixupPtr = Word32;
       break;
     }
+    case R_RISCV_RVC_BRANCH: {
+      int64_t Value = E.getTarget().getAddress() + E.getAddend() - FixupAddress;
+      uint16_t Imm12_10 = extractBits(Value, 8, 8) << 12 |
+          extractBits(Value, 4, 3) << 10;
+      uint16_t Imm6_2 = extractBits(Value, 7, 6) << 5 |
+          extractBits(Value, 2, 1) << 3 | extractBits(Value, 5, 5) << 2;
+
+      uint16_t RawInstr = *(little16_t *)FixupPtr;
+
+      *(little16_t *)FixupPtr = (RawInstr & 0xE383) | Imm12_10 | Imm6_2;
+      break;
+    }
+    case R_RISCV_RVC_JUMP: {
+      int64_t Value = E.getTarget().getAddress() + E.getAddend() - FixupAddress;
+      uint16_t Imm12_2 = extractBits(Value, 11, 11) << 12 |
+          extractBits(Value, 4, 4) << 11 | extractBits(Value, 9, 8) << 9 |
+          extractBits(Value, 10, 10) << 8 | extractBits(Value, 6, 6) << 7 |
+          extractBits(Value, 7, 7) << 6 | extractBits(Value, 3, 1) << 3 |
+          extractBits(Value, 5, 5) << 2;
+
+      uint16_t RawInstr = *(little16_t *)FixupPtr;
+
+      *(little16_t *)FixupPtr = (RawInstr & 0xE003) | Imm12_2;
+      break;
+    }
     }
     return Error::success();
   }
@@ -408,6 +433,10 @@ private:
       return EdgeKind_riscv::R_RISCV_SET32;
     case ELF::R_RISCV_32_PCREL:
       return EdgeKind_riscv::R_RISCV_32_PCREL;
+    case ELF::R_RISCV_RVC_BRANCH:
+      return EdgeKind_riscv::R_RISCV_RVC_BRANCH;
+    case ELF::R_RISCV_RVC_JUMP:
+      return EdgeKind_riscv::R_RISCV_RVC_JUMP;
     }
 
     return make_error<JITLinkError>("Unsupported riscv relocation:" +
