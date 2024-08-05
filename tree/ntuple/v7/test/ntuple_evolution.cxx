@@ -270,3 +270,71 @@ struct RemovedBaseDerived : public RemovedBaseIntermediate {
    EXPECT_EVALUATE_EQ("ptrRemovedBaseDerived->fIntermediate", 82);
    EXPECT_EVALUATE_EQ("ptrRemovedBaseDerived->fDerived", 93);
 }
+
+TEST(RNTupleEvolution, RemovedIntermediateClass)
+{
+   FileRaii fileGuard("test_ntuple_evolution_removed_intermediate_class.root");
+
+   WriteOldInFork([&] {
+      // The child process writes the file and exits, but the file must be preserved to be read by the parent.
+      fileGuard.PreserveFile();
+
+      ASSERT_TRUE(gInterpreter->Declare(R"(
+struct RemovedIntermediateBase {
+   int fBase = 1;
+};
+struct RemovedIntermediate : public RemovedIntermediateBase {
+   int fIntermediate = 2;
+};
+struct RemovedIntermediateDerived : public RemovedIntermediate {
+   int fDerived = 3;
+};
+)"));
+
+      auto model = RNTupleModel::Create();
+      model->AddField(RFieldBase::Create("f", "RemovedIntermediateDerived").Unwrap());
+
+      auto writer = RNTupleWriter::Recreate(std::move(model), "ntpl", fileGuard.GetPath());
+      writer->Fill();
+
+      void *ptr = writer->GetModel().GetDefaultEntry().GetPtr<void>("f").get();
+      DeclarePointer("RemovedIntermediateDerived", "ptrRemovedIntermediateDerived", ptr);
+      ProcessLine("ptrRemovedIntermediateDerived->fBase = 71;");
+      ProcessLine("ptrRemovedIntermediateDerived->fIntermediate = 82;");
+      ProcessLine("ptrRemovedIntermediateDerived->fDerived = 93;");
+      writer->Fill();
+
+      // Reset / close the writer and flush the file.
+      {
+         // TStreamerInfo::Build will report a warning for interpreted classes (but only for base classes).
+         // See also https://github.com/root-project/root/issues/9371
+         ROOT::TestSupport::CheckDiagsRAII diagRAII;
+         diagRAII.optionalDiag(kWarning, "TStreamerInfo::Build", "has no streamer or dictionary",
+                               /*matchFullMessage=*/false);
+         writer.reset();
+      }
+   });
+
+   ASSERT_TRUE(gInterpreter->Declare(R"(
+struct RemovedIntermediateBase {
+   int fBase = 1;
+};
+struct RemovedIntermediateDerived : public RemovedIntermediateBase {
+   int fDerived = 3;
+};
+)"));
+
+   auto reader = RNTupleReader::Open("ntpl", fileGuard.GetPath());
+   ASSERT_EQ(2, reader->GetNEntries());
+
+   void *ptr = reader->GetModel().GetDefaultEntry().GetPtr<void>("f").get();
+   DeclarePointer("RemovedIntermediateDerived", "ptrRemovedIntermediateDerived", ptr);
+
+   reader->LoadEntry(0);
+   EXPECT_EVALUATE_EQ("ptrRemovedIntermediateDerived->fIntermediate", 2);
+   EXPECT_EVALUATE_EQ("ptrRemovedIntermediateDerived->fDerived", 3);
+
+   reader->LoadEntry(1);
+   EXPECT_EVALUATE_EQ("ptrRemovedIntermediateDerived->fIntermediate", 82);
+   EXPECT_EVALUATE_EQ("ptrRemovedIntermediateDerived->fDerived", 93);
+}
