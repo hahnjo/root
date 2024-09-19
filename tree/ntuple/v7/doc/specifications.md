@@ -1,4 +1,4 @@
-# RNTuple Reference Specifications 0.2.10.0
+# RNTuple Reference Specifications 0.2.11.0
 
 **Note:** This is work in progress. The RNTuple specification is not yet finalized.
 
@@ -998,6 +998,14 @@ A field with the structural role 0x04 ("unsplit") represents an object serialize
 It can have any type supported by TClass (even types that are not available in the native RNTuple type system).
 The first (principal) column is of type [Split]Index[32|64].
 The second column is of type Byte.
+
+
+### Untyped collections and records
+
+Untyped collections and records are fields with a collection or record role and an empty type name.
+Only top-level fields as well as direct subfields of untyped files may be untyped.
+Except for the empty type name, untyped collections have the same on-disk representation than std::vector
+and untyped records have the same on-disk representation than a user-defined class.
 
 ## Limits
 
