@@ -153,6 +153,9 @@ void ROOT::Experimental::RNTupleImporter::ReportSchema()
    for (const auto &f : fImportFields) {
       std::cout << "Importing '" << f.fField->GetFieldName() << "' [" << f.fField->GetTypeName() << ']' << std::endl;
    }
+   for (const auto &f : fModel->GetProjectedFields().GetFieldZero()->GetSubFields()) {
+      std::cout << "Importing (projected) '" << f->GetFieldName() << "' [" << f->GetTypeName() << ']' << std::endl;
+   }
 }
 
 void ROOT::Experimental::RNTupleImporter::ResetSchema()
@@ -198,7 +201,6 @@ ROOT::Experimental::RResult<void> ROOT::Experimental::RNTupleImporter::PrepareSc
          // Count leaf branches do not end up as (physical) fields but they trigger the creation of an untyped
          // collection, together the collection mode.
          RImportLeafCountCollection c;
-         c.fCollectionModel = RNTupleModel::CreateBare();
          c.fMaxLength = firstLeaf->GetMaximum();
          c.fCountVal = std::make_unique<Int_t>(); // count leafs are integers
          // Casting to void * makes it work for both Int_t and UInt_t
@@ -272,15 +274,9 @@ ROOT::Experimental::RResult<void> ROOT::Experimental::RNTupleImporter::PrepareSc
          if (isLeafList) {
             recordItems.emplace_back(std::move(field));
          } else if (isLeafCountArray) {
-            f.fValue = std::make_unique<RFieldBase::RValue>(field->CreateValue());
-            f.fFieldBuffer = f.fValue->GetPtr<void>().get();
-            f.fIsInUntypedCollection = true;
             const std::string countleafName = countleaf->GetName();
-            fLeafCountCollections[countleafName].fCollectionModel->AddField(std::move(field));
-            fLeafCountCollections[countleafName].fImportFieldIndexes.emplace_back(fImportFields.size());
-            fLeafCountCollections[countleafName].fTransformations.emplace_back(
-               std::make_unique<RLeafArrayTransformation>(fImportBranches.size(), fImportFields.size()));
-            fImportFields.emplace_back(std::move(f));
+            fLeafCountCollections[countleafName].fLeafFields.emplace_back(std::move(field));
+            fLeafCountCollections[countleafName].fLeafBranchIndexes.emplace_back(fImportBranches.size());
          } else {
             fModel->AddField(std::move(field));
             fImportFields.emplace_back(std::move(f));
@@ -324,26 +320,22 @@ ROOT::Experimental::RResult<void> ROOT::Experimental::RNTupleImporter::PrepareSc
       // structured binding in C++17. Explicitly defining a variable works.
       auto countLeafName = p.first;
       auto &c = p.second;
-      c.fCollectionModel->Freeze();
-      c.fCollectionEntry = c.fCollectionModel->CreateBareEntry();
-      for (auto idx : c.fImportFieldIndexes) {
-         const auto name = fImportFields[idx].fField->GetFieldName();
-         const auto buffer = fImportFields[idx].fFieldBuffer;
-         c.fCollectionEntry->BindRawPtr(name, buffer);
-      }
+
       c.fFieldName = "_collection" + std::to_string(iLeafCountCollection);
-      c.fCollectionWriter = fModel->MakeCollection(c.fFieldName, std::move(c.fCollectionModel));
+      auto recordField = std::make_unique<RRecordField>("_0", c.fLeafFields);
+      c.fRecordField = recordField.get();
+      auto collectionField = std::make_unique<RSequenceCollectionField>(c.fFieldName, std::move(recordField));
+      fModel->AddField(std::move(collectionField));
+
       // Add projected fields for all leaf count arrays
-      for (auto idx : c.fImportFieldIndexes) {
-         const auto name = fImportFields[idx].fField->GetFieldName();
-         auto projectedField =
-            RFieldBase::Create(name, "ROOT::VecOps::RVec<" + fImportFields[idx].fField->GetTypeName() + ">").Unwrap();
-         R__ASSERT(dynamic_cast<RRVecField *>(projectedField.get()));
+      for (const auto leaf : c.fRecordField->GetSubFields()) {
+         const auto name = leaf->GetFieldName();
+         auto projectedField = RFieldBase::Create(name, "ROOT::VecOps::RVec<" + leaf->GetTypeName() + ">").Unwrap();
          fModel->AddProjectedField(std::move(projectedField), [&name, &c](const std::string &fieldName) {
             if (fieldName == name)
                return c.fFieldName;
             else
-               return c.fFieldName + "." + name;
+               return c.fFieldName + "._0." + name;
          });
       }
 
@@ -356,6 +348,7 @@ ROOT::Experimental::RResult<void> ROOT::Experimental::RNTupleImporter::PrepareSc
       auto projectedField =
          RFieldBase::Create(countLeafName, "ROOT::Experimental::RNTupleCardinality<std::uint32_t>").Unwrap();
       fModel->AddProjectedField(std::move(projectedField), [&c](const std::string &) { return c.fFieldName; });
+
       iLeafCountCollection++;
    }
 
@@ -368,12 +361,10 @@ ROOT::Experimental::RResult<void> ROOT::Experimental::RNTupleImporter::PrepareSc
 
    fEntry = fModel->CreateBareEntry();
    for (const auto &f : fImportFields) {
-      if (f.fIsInUntypedCollection)
-         continue;
       fEntry->BindRawPtr(f.fField->GetFieldName(), f.fFieldBuffer);
    }
-   for (const auto &[_, c] : fLeafCountCollections) {
-      fEntry->BindRawPtr<void>(c.fFieldName, c.fCollectionWriter->GetOffsetPtr());
+   for (auto &[_, c] : fLeafCountCollections) {
+      fEntry->BindRawPtr<void>(c.fFieldName, &c.fFieldBuffer);
    }
 
    if (!fIsQuiet)
@@ -413,17 +404,20 @@ void ROOT::Experimental::RNTupleImporter::Import()
    for (decltype(nEntries) i = 0; i < nEntries; ++i) {
       fSourceTree->GetEntry(i);
 
-      for (const auto &[_, c] : fLeafCountCollections) {
-         for (Int_t l = 0; l < *c.fCountVal; ++l) {
-            for (auto &t : c.fTransformations) {
-               auto result = t->Transform(fImportBranches[t->fImportBranchIdx], fImportFields[t->fImportFieldIdx]);
-               if (!result)
-                  throw RException(R__FORWARD_ERROR(result));
+      for (auto &[_, c] : fLeafCountCollections) {
+         const auto sizeOfRecord = c.fRecordField->GetValueSize();
+         c.fFieldBuffer.resize(sizeOfRecord * (*c.fCountVal));
+
+         const auto nLeafs = c.fRecordField->GetSubFields().size();
+         for (std::size_t l = 0; l < nLeafs; ++l) {
+            const auto offset = c.fRecordField->GetOffsets()[l];
+            const auto sizeOfLeaf = c.fRecordField->GetSubFields()[l]->GetValueSize();
+            const auto idxImportBranch = c.fLeafBranchIndexes[l];
+            for (Int_t j = 0; j < *c.fCountVal; ++j) {
+               memcpy(c.fFieldBuffer.data() + j * sizeOfRecord + offset,
+                      fImportBranches[idxImportBranch].fBranchBuffer.get() + (j * sizeOfLeaf), sizeOfLeaf);
             }
-            c.fCollectionWriter->Fill(*c.fCollectionEntry);
          }
-         for (auto &t : c.fTransformations)
-            t->ResetEntry();
       }
 
       for (auto &t : fImportTransformations) {
