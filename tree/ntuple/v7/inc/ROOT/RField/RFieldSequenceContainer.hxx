@@ -255,7 +255,8 @@ private:
    std::unique_ptr<RDeleter> fItemDeleter;
 
 protected:
-   RSequenceCollectionField(std::string_view fieldName, std::unique_ptr<RFieldBase> itemField, bool isUntyped);
+   RSequenceCollectionField(std::string_view fieldName, std::string_view fieldType,
+                            std::unique_ptr<RFieldBase> itemField);
 
    std::unique_ptr<RFieldBase> CloneImpl(std::string_view newName) const override;
 
@@ -297,10 +298,7 @@ protected:
    std::unique_ptr<RFieldBase> CloneImpl(std::string_view newName) const final;
 
 public:
-   RVectorField(std::string_view fieldName, std::unique_ptr<RFieldBase> itemField)
-      : RSequenceCollectionField(fieldName, std::move(itemField), false)
-   {
-   }
+   RVectorField(std::string_view fieldName, std::unique_ptr<RFieldBase> itemField);
    RVectorField(RVectorField &&other) = default;
    RVectorField &operator=(RVectorField &&other) = default;
    ~RVectorField() override = default;

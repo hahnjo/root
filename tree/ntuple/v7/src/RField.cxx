@@ -2485,10 +2485,9 @@ void ROOT::Experimental::RRecordField::AcceptVisitor(Detail::RFieldVisitor &visi
 //------------------------------------------------------------------------------
 
 ROOT::Experimental::RSequenceCollectionField::RSequenceCollectionField(std::string_view fieldName,
-                                                                       std::unique_ptr<RFieldBase> itemField,
-                                                                       bool isUntyped)
-   : ROOT::Experimental::RFieldBase(fieldName, isUntyped ? "" : "std::vector<" + itemField->GetTypeName() + ">",
-                                    ENTupleStructure::kCollection, false /* isSimple */),
+                                                                       std::string_view fieldType,
+                                                                       std::unique_ptr<RFieldBase> itemField)
+   : ROOT::Experimental::RFieldBase(fieldName, fieldType, ENTupleStructure::kCollection, false /* isSimple */),
      fItemSize(itemField->GetValueSize()),
      fNWritten(0)
 {
@@ -2499,7 +2498,7 @@ ROOT::Experimental::RSequenceCollectionField::RSequenceCollectionField(std::stri
 
 ROOT::Experimental::RSequenceCollectionField::RSequenceCollectionField(std::string_view fieldName,
                                                                        std::unique_ptr<RFieldBase> itemField)
-   : RSequenceCollectionField(fieldName, std::move(itemField), true)
+   : RSequenceCollectionField(fieldName, "", std::move(itemField))
 {
 }
 
@@ -2630,6 +2629,12 @@ void ROOT::Experimental::RSequenceCollectionField::AcceptVisitor(Detail::RFieldV
 }
 
 //------------------------------------------------------------------------------
+
+ROOT::Experimental::RVectorField::RVectorField(std::string_view fieldName, std::unique_ptr<RFieldBase> itemField)
+   : ROOT::Experimental::RSequenceCollectionField(fieldName, "std::vector<" + itemField->GetTypeName() + ">",
+                                                  std::move(itemField))
+{
+}
 
 std::unique_ptr<ROOT::Experimental::RFieldBase>
 ROOT::Experimental::RVectorField::CloneImpl(std::string_view newName) const
