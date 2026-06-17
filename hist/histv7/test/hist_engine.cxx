@@ -144,6 +144,10 @@ TEST(RHistEngine, SetBinContent)
    engine.SetBinContent(indices, 43);
    EXPECT_EQ(engine.GetBinContent(indices), 43);
 
+   const std::vector<RBinIndex> indicesV = {index};
+   engine.SetBinContent(indicesV, 44);
+   EXPECT_EQ(engine.GetBinContent(indicesV), 44);
+
    // This also works if the value must be converted to the bin content type.
    RHistEngine<float> engineF({axis});
    engineF.SetBinContent(index, 42);
